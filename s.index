@@ -1,0 +1,811 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Stall POS Premium</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Poppins', sans-serif; background-color: #f4f6f8; }
+        button, input, select { touch-action: manipulation; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        .tap-effect:active { transform: scale(0.97); transition: transform 0.1s ease; }
+        
+        @media print {
+            body * { visibility: hidden; }
+            #print-area, #print-area * { visibility: visible; }
+            #print-area { position: absolute; left: 0; top: 0; width: 100%; height: auto; overflow: visible; padding: 20px; background: white; }
+            .no-print { display: none !important; }
+        }
+    </style>
+</head>
+<body class="text-slate-800 select-none">
+    <div id="app" class="max-w-5xl mx-auto bg-slate-50 min-h-screen shadow-2xl relative flex flex-col overflow-hidden border-x border-slate-200">
+        
+        <div v-if="!sessionStarted" class="flex-1 flex flex-col justify-center items-center bg-slate-100 p-5 relative">
+            <div class="absolute top-0 left-0 w-full h-64 bg-gradient-to-b from-indigo-100 to-transparent pointer-events-none"></div>
+
+            <div class="bg-white p-8 rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-slate-100 w-full max-w-sm z-10">
+                <h1 class="text-2xl font-extrabold mb-8 text-center text-slate-900 tracking-tight">Start Day</h1>
+                
+                <label class="block text-sm font-semibold text-slate-800 mb-2">Date</label>
+                <input type="date" v-model="settings.date" class="w-full p-3.5 mb-5 bg-white border border-slate-200 text-slate-800 rounded-xl outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-50 transition-all">
+                
+                <label class="block text-sm font-semibold text-slate-800 mb-2">Stall Venue</label>
+                <input type="text" v-model="settings.venue" placeholder="e.g. Pasar Malam Stutong" class="w-full p-3.5 mb-6 bg-white border border-slate-200 text-slate-800 placeholder-slate-400 rounded-xl outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-50 transition-all">
+                
+                <button @click="carryForwardStock = !carryForwardStock" 
+                    class="w-full py-3.5 mb-5 rounded-xl border-2 font-semibold flex justify-center items-center gap-2 tap-effect transition-all"
+                    :class="carryForwardStock ? 'border-slate-800 text-slate-800 bg-slate-50/50' : 'border-slate-200 text-slate-400 bg-white'">
+                    <span class="text-lg leading-none" v-if="carryForwardStock">☑</span>
+                    <span class="text-lg leading-none" v-else>☐</span> 
+                    Use yesterday's closing stock
+                </button>
+                
+                <button @click="startDay" class="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold text-lg py-4 rounded-xl shadow-lg tap-effect transition-colors">
+                    Start Day
+                </button>
+            </div>
+
+            <button @click="resetData" class="mt-10 text-slate-400 hover:text-red-500 font-bold py-2 text-xs z-10 transition-colors uppercase tracking-widest">
+                Hard Reset System
+            </button>
+        </div>
+
+        <div v-else class="flex-1 flex flex-col h-screen relative bg-slate-50">
+            
+            <header class="bg-white px-6 py-4 flex justify-between items-center shadow-[0_2px_10px_rgba(0,0,0,0.03)] shrink-0 z-20 gap-3">
+                <div class="flex-1">
+                    <h2 class="text-xl font-extrabold text-slate-800 leading-tight tracking-tight truncate">{{ settings.venue }}</h2>
+                    <p class="text-xs font-medium text-slate-400">{{ settings.date }} <span v-if="settings.startTime" class="text-indigo-500 font-semibold">• started {{ settings.startTime }}</span></p>
+                </div>
+                <div class="flex gap-2 shrink-0">
+                    <button @click="showSettingsModal = true" class="w-10 h-10 flex items-center justify-center bg-slate-100 text-slate-600 rounded-xl text-lg tap-effect hover:bg-slate-200 transition-colors">
+                        ⚙️
+                    </button>
+                    <button @click="showEndDayModal = true" class="bg-slate-800 text-white px-4 py-2 rounded-xl font-bold text-sm tap-effect hover:bg-slate-700 transition-colors shadow-sm">
+                        End Day
+                    </button>
+                </div>
+            </header>
+
+            <nav class="flex bg-white border-b border-slate-200 shrink-0 px-2 pt-2 gap-1 overflow-x-auto no-scrollbar z-10 shadow-sm relative">
+                <button v-for="tab in ['Sell', 'Items', 'Stock', 'Report', 'Past']" :key="tab" 
+                    @click="currentTab = tab.toLowerCase()"
+                    :class="currentTab === tab.toLowerCase() ? 'border-b-4 border-indigo-600 text-indigo-700 font-bold bg-indigo-50/50 rounded-t-lg' : 'text-slate-500 font-medium hover:text-slate-700 hover:bg-slate-50 rounded-t-lg'"
+                    class="px-5 py-3.5 whitespace-nowrap transition-all flex-1 text-center flex items-center justify-center gap-2">
+                    <span v-if="tab === 'Sell'">🛒</span>
+                    <span v-if="tab === 'Items'">📦</span>
+                    <span v-if="tab === 'Past'">🕒</span>
+                    {{ tab }}
+                </button>
+            </nav>
+
+            <div v-if="currentTab === 'sell'" class="flex-1 flex flex-col relative overflow-hidden bg-slate-100">
+                <div class="px-5 py-4 shrink-0">
+                    <div class="relative bg-white shadow-sm rounded-xl flex items-center p-1.5 border border-slate-200 focus-within:border-indigo-400 focus-within:ring-2 focus-within:ring-indigo-50 transition-all">
+                        <span class="pl-3 text-xl opacity-40">🔍</span>
+                        <input type="text" v-model="searchQuery" placeholder="Search item or barcode..." class="w-full p-2.5 bg-transparent text-md font-semibold text-slate-700 outline-none">
+                    </div>
+                </div>
+
+                <div class="flex overflow-x-auto px-5 pb-3 gap-2 shrink-0 no-scrollbar">
+                    <button v-for="cat in dynamicCategories" :key="cat" @click="activeCategory = cat" 
+                        :class="activeCategory === cat ? 'bg-slate-800 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'"
+                        class="px-6 py-2.5 rounded-full font-bold whitespace-nowrap text-sm tap-effect transition-all">
+                        {{ cat }}
+                    </button>
+                </div>
+
+                <div class="flex-1 overflow-y-auto px-5 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 pb-40 content-start">
+                    <div v-for="item in filteredItems" :key="item.id" @click="addToCart(item)" 
+                        class="bg-white rounded-2xl p-5 flex flex-col justify-between shadow-sm border border-slate-200 tap-effect relative overflow-hidden cursor-pointer hover:border-indigo-300 hover:shadow-md transition-all group">
+                        <div class="absolute -right-4 -top-4 w-16 h-16 bg-slate-50 rounded-full group-hover:scale-150 transition-transform duration-500 -z-10"></div>
+                        <div class="z-10">
+                            <span class="text-3xl block mb-3 drop-shadow-sm">{{item.icon}}</span>
+                            <h3 class="font-bold text-slate-800 text-sm leading-tight mb-1">{{ item.name }}</h3>
+                            <p class="text-xs font-semibold text-slate-400">Stock: {{ item.stock }}</p>
+                        </div>
+                        <div class="mt-4 flex justify-between items-end z-10">
+                            <span class="font-black text-lg text-indigo-600 tracking-tight">RM{{ item.price.toFixed(2) }}</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="absolute bottom-0 left-0 w-full px-4 pb-6 pt-10 bg-gradient-to-t from-slate-100 via-slate-100/90 to-transparent pointer-events-none flex justify-center z-20">
+                    <div class="bg-slate-900 text-white p-4 w-full max-w-lg mx-auto rounded-[1.5rem] shadow-[0_10px_30px_rgba(0,0,0,0.15)] pointer-events-auto flex items-center justify-between border border-slate-700">
+                        <div class="px-3 cursor-pointer tap-effect" @click="showCart = true">
+                            <p class="text-xs font-bold text-slate-400 mb-0.5 uppercase tracking-wider">{{ cartCount }} Items in Cart</p>
+                            <h3 class="font-black text-2xl text-white tracking-tight">RM{{ cartTotal.toFixed(2) }}</h3>
+                        </div>
+                        <button @click="showPayment = true" :disabled="cart.length === 0" class="bg-indigo-500 disabled:bg-slate-700 text-white font-bold text-lg px-8 py-4 rounded-xl tap-effect hover:bg-indigo-400 transition-colors shadow-lg">
+                            Pay Order
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div v-if="currentTab === 'items'" class="flex-1 overflow-y-auto p-5">
+                <div class="max-w-3xl mx-auto">
+                    <button @click="openForm()" class="w-full bg-slate-900 text-white font-bold text-md py-4 rounded-2xl shadow-lg tap-effect mb-8 flex items-center justify-center gap-2 hover:bg-slate-800 transition-all border border-slate-700">
+                        <span class="text-xl">+</span> Add New Item
+                    </button>
+                    
+                    <div class="text-xs font-bold text-slate-400 mb-3 uppercase tracking-wider pl-1">Manage Inventory ({{items.length}})</div>
+                    
+                    <div class="space-y-3 pb-10">
+                        <div v-for="(item, index) in items" :key="item.id" class="bg-white border border-slate-200 p-4 rounded-2xl shadow-sm flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 relative hover:shadow-md transition-shadow">
+                            <div class="flex gap-4 items-center">
+                                <div class="w-14 h-14 shrink-0 bg-slate-50 rounded-xl flex items-center justify-center text-3xl border border-slate-100">{{ item.icon }}</div>
+                                <div>
+                                    <h4 class="font-bold text-md text-slate-800 leading-tight mb-1">{{ item.name }}</h4>
+                                    <p class="text-xs text-slate-500 font-medium bg-slate-100 inline-block px-2 py-1 rounded-md">{{ item.category }}</p>
+                                    <p class="text-xs text-slate-400 mt-1 font-semibold">RM {{ item.price.toFixed(2) }} <span class="mx-1">•</span> bc {{ item.barcode || '-' }}</p>
+                                </div>
+                            </div>
+                            <div class="flex gap-2 sm:justify-end">
+                                <button @click="editItem(item)" class="flex-1 sm:flex-none px-6 py-2 bg-white border border-slate-200 text-slate-700 text-sm font-bold rounded-xl tap-effect hover:bg-slate-50 shadow-sm transition-colors">Edit</button>
+                                <button @click="deleteItem(index)" class="w-12 h-12 shrink-0 bg-red-50 text-red-600 font-bold rounded-xl flex items-center justify-center tap-effect hover:bg-red-100 border border-red-100 shadow-sm transition-colors">
+                                    🗑️
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div v-if="currentTab === 'stock'" class="flex-1 flex flex-col relative">
+                <div class="flex-1 overflow-y-auto p-5 pb-32">
+                    <div class="max-w-3xl mx-auto">
+                        <div class="bg-indigo-50 border border-indigo-100 p-6 rounded-2xl mb-6 shadow-sm">
+                            <h3 class="font-bold text-slate-800 text-lg mb-1 flex items-center gap-2">📦 Add Incoming Stock</h3>
+                            <p class="text-sm text-slate-600">Enter quantity to add for each item, then tap Apply at the bottom.</p>
+                        </div>
+
+                        <div class="space-y-3">
+                            <div v-for="item in items" :key="'stock-'+item.id" class="bg-white border border-slate-200 p-4 rounded-2xl shadow-sm flex justify-between items-center hover:border-indigo-300 transition-colors">
+                                <div class="flex items-center gap-3">
+                                    <span class="text-2xl">{{item.icon}}</span>
+                                    <div>
+                                        <h4 class="font-bold text-slate-800">{{ item.name }}</h4>
+                                        <p class="text-xs font-semibold text-slate-400 mt-0.5">Current Stock: <span class="text-slate-700">{{ item.stock }}</span></p>
+                                    </div>
+                                </div>
+                                <div class="w-24 relative">
+                                    <span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">+</span>
+                                    <input type="number" min="0" placeholder="0" v-model.number="incomingStock[item.id]" 
+                                        class="w-full bg-slate-50 border border-slate-200 p-3 pl-8 text-center rounded-xl font-bold text-indigo-600 outline-none focus:border-indigo-500 focus:bg-white transition-all shadow-inner">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="absolute bottom-0 left-0 w-full p-4 bg-white border-t border-slate-200 z-10 shadow-[0_-10px_20px_rgba(0,0,0,0.02)]">
+                    <div class="max-w-3xl mx-auto">
+                        <button @click="applyStock" class="w-full bg-slate-900 text-white py-4 rounded-xl font-bold text-lg tap-effect hover:bg-slate-800 transition-colors shadow-xl shadow-slate-900/20">
+                            Apply Incoming Stock
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div v-if="currentTab === 'report'" class="flex-1 overflow-y-auto p-5">
+                <div class="max-w-4xl mx-auto space-y-6">
+                    <div class="bg-white border border-slate-200 rounded-2xl shadow-sm p-6 relative overflow-hidden">
+                        <div class="absolute right-0 top-0 w-32 h-32 bg-slate-50 rounded-bl-full -z-10"></div>
+                        <p class="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Total Sales <span class="normal-case font-medium">({{ transactions.length }} transactions)</span></p>
+                        <h3 class="text-5xl font-black text-slate-800 mb-8 tracking-tight">RM {{ totalSales.toFixed(2) }}</h3>
+                        
+                        <div class="space-y-4 text-sm font-semibold text-slate-600">
+                            <div class="flex justify-between items-center border-b border-slate-100 pb-2"><span>Cash</span><span class="text-slate-800">RM {{ salesByMethod('Cash').toFixed(2) }}</span></div>
+                            <div class="flex justify-between items-center border-b border-slate-100 pb-2"><span>Sarawak Pay</span><span class="text-slate-800">RM {{ salesByMethod('Sarawak Pay').toFixed(2) }}</span></div>
+                            <div class="flex justify-between items-center"><span>QR</span><span class="text-slate-800">RM {{ salesByMethod('QR').toFixed(2) }}</span></div>
+                        </div>
+                    </div>
+
+                    <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+                        <div class="p-5 border-b border-slate-100 bg-slate-50/50">
+                            <h3 class="font-bold text-slate-800">Stock Movement</h3>
+                        </div>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left text-sm text-slate-600 min-w-[600px]">
+                                <thead class="bg-slate-50/50 border-b border-slate-100 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                                    <tr>
+                                        <th class="p-4 pl-5">Item</th>
+                                        <th class="p-4 text-center">Open</th>
+                                        <th class="p-4 text-center">In</th>
+                                        <th class="p-4 text-center">Sold</th>
+                                        <th class="p-4 text-center">Close</th>
+                                        <th class="p-4 text-center pr-5">Var</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-slate-100 bg-white">
+                                    <tr v-for="item in items" :key="item.id" class="hover:bg-slate-50 transition-colors">
+                                        <td class="p-4 pl-5 font-bold text-slate-800">{{ item.name }}</td>
+                                        <td class="p-4 text-center text-slate-500">{{ dailyStock[item.id]?.open || 0 }}</td>
+                                        <td class="p-4 text-center text-emerald-500 font-semibold">{{ dailyStock[item.id]?.in ? dailyStock[item.id].in : '-' }}</td>
+                                        <td class="p-4 text-center text-blue-500 font-semibold">{{ dailyStock[item.id]?.sold ? dailyStock[item.id].sold : '-' }}</td>
+                                        <td class="p-4 text-center font-black text-slate-800">{{ item.stock }}</td>
+                                        <td class="p-4 text-center pr-5 font-semibold" :class="calculateVar(item) < 0 ? 'text-red-500' : 'text-slate-400'">{{ calculateVar(item) }}</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <button @click="undoLastSale" :disabled="transactions.length === 0" class="w-full bg-white text-orange-600 border border-slate-200 shadow-sm font-bold text-md py-4 rounded-xl disabled:opacity-50 disabled:bg-slate-50 tap-effect flex justify-center items-center gap-2 hover:bg-orange-50 hover:border-orange-200 transition-colors mt-8">
+                        ↩️ Undo Last Sale
+                    </button>
+                </div>
+            </div>
+
+            <div v-if="currentTab === 'past'" class="flex-1 overflow-y-auto p-5">
+                <div class="max-w-4xl mx-auto space-y-3">
+                    <div v-if="pastRecords.length === 0" class="text-center text-slate-400 mt-20">
+                        <span class="text-5xl block mb-4 opacity-50">📁</span>
+                        <p class="font-bold text-lg text-slate-500">No Past Records</p>
+                        <p class="text-sm">End your day to save reports here.</p>
+                    </div>
+
+                    <div v-for="record in pastRecords" :key="record.id" class="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm hover:shadow-md transition-shadow flex justify-between items-center group">
+                        <div>
+                            <h3 class="font-extrabold text-slate-800 text-lg mb-1">{{ record.date }}</h3>
+                            <p class="text-sm font-medium text-slate-500">{{ record.venue }} <span class="mx-1">•</span> {{ record.salesCount }} sales</p>
+                        </div>
+                        <div class="text-right flex flex-col items-end gap-2">
+                            <h3 class="font-black text-slate-800 text-xl tracking-tight">RM {{ record.totalSales.toFixed(2) }}</h3>
+                            <button @click="viewPastRecord(record)" class="text-sm font-bold text-indigo-600 hover:text-indigo-800 tap-effect px-4 py-1.5 bg-indigo-50 border border-indigo-100 rounded-lg transition-colors">
+                                View
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+        <div v-if="showSettingsModal" class="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 no-print">
+            <div class="bg-white w-full max-w-md rounded-[2rem] p-6 sm:p-8 shadow-2xl animate-[slideUp_0.2s_ease-out] max-h-[90vh] overflow-y-auto">
+                <div class="flex justify-between items-center mb-6 border-b border-slate-100 pb-4">
+                    <h3 class="text-2xl font-extrabold text-slate-800">Settings</h3>
+                    <button @click="showSettingsModal = false" class="text-slate-400 font-bold text-xl bg-slate-50 w-8 h-8 rounded-full flex justify-center items-center hover:bg-slate-100 transition-colors">✕</button>
+                </div>
+                
+                <p class="text-sm text-slate-500 mb-6">Upload your payment QR codes here. They will be displayed when customers choose to pay via QR.</p>
+
+                <div class="mb-6 bg-slate-50 p-4 rounded-2xl border border-slate-200">
+                    <label class="block text-sm font-bold text-slate-800 mb-2 flex justify-between">
+                        <span>📱 Sarawak Pay QR</span>
+                        <span v-if="settings.qrSarawakPay" @click="settings.qrSarawakPay = ''" class="text-red-500 text-xs cursor-pointer hover:underline">Remove</span>
+                    </label>
+                    <div v-if="settings.qrSarawakPay" class="mb-3 bg-white p-2 rounded-xl border border-slate-200 flex justify-center">
+                        <img :src="settings.qrSarawakPay" class="max-h-40 rounded-lg object-contain">
+                    </div>
+                    <input type="file" accept="image/*" @change="e => compressAndSaveImage(e, 'qrSarawakPay')" class="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 cursor-pointer">
+                </div>
+
+                <div class="mb-6 bg-slate-50 p-4 rounded-2xl border border-slate-200">
+                    <label class="block text-sm font-bold text-slate-800 mb-2 flex justify-between">
+                        <span>🔳 Other QR (DuitNow, etc)</span>
+                        <span v-if="settings.qrOther" @click="settings.qrOther = ''" class="text-red-500 text-xs cursor-pointer hover:underline">Remove</span>
+                    </label>
+                    <div v-if="settings.qrOther" class="mb-3 bg-white p-2 rounded-xl border border-slate-200 flex justify-center">
+                        <img :src="settings.qrOther" class="max-h-40 rounded-lg object-contain">
+                    </div>
+                    <input type="file" accept="image/*" @change="e => compressAndSaveImage(e, 'qrOther')" class="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 cursor-pointer">
+                </div>
+
+                <button @click="showSettingsModal = false" class="w-full bg-slate-900 text-white font-bold py-4 rounded-xl shadow-lg shadow-slate-900/20 tap-effect hover:bg-slate-800 transition-colors">Done</button>
+            </div>
+        </div>
+
+        <div v-if="showQrScannerModal" class="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/80 backdrop-blur-md p-6 no-print">
+            <div class="bg-white w-full max-w-sm rounded-[2rem] p-6 shadow-2xl flex flex-col items-center animate-[scaleUp_0.2s_ease-out]">
+                
+                <h3 class="font-bold text-slate-400 uppercase tracking-widest text-xs mb-1 text-center">Scan to Pay</h3>
+                <h2 class="text-5xl font-black text-slate-800 mb-2 tracking-tight text-center">RM{{ cartTotal.toFixed(2) }}</h2>
+                <div class="bg-slate-100 px-4 py-1 rounded-full text-sm font-bold text-slate-600 mb-6">{{ activeQrType }}</div>
+
+                <div class="bg-white p-2 rounded-2xl border-2 border-slate-100 shadow-sm w-full aspect-square flex items-center justify-center mb-8 relative">
+                    <img v-if="activeQrImage" :src="activeQrImage" class="w-full h-full object-contain rounded-xl">
+                    <div v-else class="text-center text-slate-400">
+                        <p class="text-4xl mb-2">📷</p>
+                        <p class="text-xs font-semibold px-4">No QR Code uploaded. Please go to Settings to add one.</p>
+                    </div>
+                </div>
+
+                <button @click="finalizePayment(activeQrType)" :disabled="!activeQrImage" class="w-full bg-indigo-500 hover:bg-indigo-600 disabled:bg-slate-300 text-white font-bold text-lg py-4 rounded-2xl shadow-lg shadow-indigo-500/30 tap-effect transition-colors mb-3">
+                    Confirm Payment Received
+                </button>
+                <button @click="cancelQrPayment" class="w-full text-slate-500 font-bold py-3 text-sm tap-effect hover:bg-slate-50 rounded-xl transition-colors">
+                    Back to Payment Methods
+                </button>
+            </div>
+        </div>
+
+        <div v-if="showEndDayModal || showPastRecordModal" class="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+            <div class="bg-white w-full max-w-2xl max-h-full rounded-[2rem] flex flex-col shadow-2xl animate-[scaleUp_0.2s_ease-out]">
+                <div id="print-area" class="flex flex-col flex-1 overflow-hidden rounded-t-[2rem]">
+                    <div class="flex justify-between items-center p-6 border-b border-slate-100 shrink-0 bg-white">
+                        <h3 class="font-bold text-slate-800 text-lg">{{ showPastRecordModal ? 'Past End of Day Report' : 'End of Day Report — Preview' }}</h3>
+                        <button @click="closeRecordModals" class="text-slate-400 hover:text-slate-600 font-bold text-xl no-print bg-slate-100 w-8 h-8 rounded-full flex items-center justify-center">✕</button>
+                    </div>
+                    <div class="flex-1 overflow-y-auto p-6 bg-white space-y-6">
+                        <div>
+                            <h2 class="text-xl font-extrabold text-slate-800">{{ activeReportData.venue }}</h2>
+                            <p class="text-xs text-slate-500 font-medium">{{ activeReportData.date }} 
+                                <span v-if="activeReportData.startTime">• started {{ activeReportData.startTime }}</span>
+                                <span v-if="activeReportData.endTime">• ended {{ activeReportData.endTime }}</span>
+                            </p>
+                        </div>
+                        <div class="bg-white border border-slate-200 rounded-2xl p-6">
+                            <p class="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Total Sales ({{ activeReportData.salesCount }} transactions)</p>
+                            <h3 class="text-4xl font-black text-slate-800 mb-5 tracking-tight">RM {{ activeReportData.totalSales.toFixed(2) }}</h3>
+                            <div class="space-y-3 text-sm font-semibold text-slate-600">
+                                <div class="flex justify-between border-b border-slate-100 pb-2"><span>Cash</span><span class="text-slate-800">RM {{ activeReportData.salesByMethod['Cash'].toFixed(2) }}</span></div>
+                                <div class="flex justify-between border-b border-slate-100 pb-2"><span>Sarawak Pay</span><span class="text-slate-800">RM {{ activeReportData.salesByMethod['Sarawak Pay'].toFixed(2) }}</span></div>
+                                <div class="flex justify-between"><span>QR</span><span class="text-slate-800">RM {{ activeReportData.salesByMethod['QR'].toFixed(2) }}</span></div>
+                            </div>
+                        </div>
+                        <div class="bg-white border border-slate-200 rounded-2xl overflow-hidden">
+                            <div class="p-5 border-b border-slate-100 bg-slate-50/50">
+                                <h3 class="font-bold text-slate-800">Stock Movement</h3>
+                            </div>
+                            <div class="overflow-x-auto">
+                                <table class="w-full text-left text-sm text-slate-600 min-w-[500px]">
+                                    <thead class="bg-white border-b border-slate-100 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                                        <tr>
+                                            <th class="p-4 pl-5">Item</th>
+                                            <th class="p-4 text-center">Open</th>
+                                            <th class="p-4 text-center">In</th>
+                                            <th class="p-4 text-center">Sold</th>
+                                            <th class="p-4 text-center">Close</th>
+                                            <th class="p-4 text-center pr-5">Var</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="divide-y divide-slate-100 bg-white">
+                                        <tr v-for="(item, idx) in activeReportData.stockMovement" :key="idx" class="hover:bg-slate-50 transition-colors">
+                                            <td class="p-4 pl-5 font-bold text-slate-800 text-[13px]">{{ item.name }}</td>
+                                            <td class="p-4 text-center">{{ item.open }}</td>
+                                            <td class="p-4 text-center text-emerald-500 font-medium">{{ item.in ? item.in : '-' }}</td>
+                                            <td class="p-4 text-center text-blue-500 font-medium">{{ item.sold ? item.sold : '-' }}</td>
+                                            <td class="p-4 text-center font-black text-slate-800">{{ item.close }}</td>
+                                            <td class="p-4 text-center pr-5 font-semibold" :class="item.var < 0 ? 'text-red-500' : 'text-slate-400'">{{ item.var }}</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="p-5 border-t border-slate-100 shrink-0 flex gap-3 bg-white rounded-b-[2rem] no-print">
+                    <button @click="printReport" class="px-6 py-3.5 border border-slate-200 font-bold text-slate-700 rounded-xl tap-effect hover:bg-slate-50 flex items-center gap-2 transition-colors">
+                        <span class="text-xl">🖨️</span> Print
+                    </button>
+                    <div class="flex-1"></div>
+                    <template v-if="showEndDayModal">
+                        <button @click="showEndDayModal = false" class="px-6 py-3.5 border border-slate-200 font-bold text-slate-700 rounded-xl tap-effect hover:bg-slate-50 transition-colors">
+                            Cancel
+                        </button>
+                        <button @click="confirmEndDay" class="px-8 py-3.5 bg-slate-900 text-white font-bold rounded-xl tap-effect shadow-xl shadow-slate-900/20 hover:bg-slate-800 transition-colors">
+                            Confirm End
+                        </button>
+                    </template>
+                </div>
+            </div>
+        </div>
+
+        <div v-if="showForm" class="absolute inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 sm:p-0 no-print">
+            <div class="bg-white w-full max-w-md rounded-[2rem] p-6 sm:p-8 shadow-2xl animate-[slideUp_0.2s_ease-out] flex flex-col max-h-[90vh]">
+                <h3 class="text-2xl font-extrabold text-slate-800 mb-5 shrink-0">{{ editingItem ? 'Edit Item' : 'New Item' }}</h3>
+                <div class="overflow-y-auto flex-1 no-scrollbar pb-2">
+                    <div class="mb-4">
+                        <label class="block text-xs font-bold text-slate-500 mb-1 pl-1">Name</label>
+                        <input v-model="form.name" placeholder="Item Name" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none focus:bg-white focus:border-indigo-400 transition-all text-slate-800 text-lg">
+                    </div>
+                    <div class="grid grid-cols-2 gap-3 mb-4">
+                        <div>
+                            <label class="block text-xs font-bold text-slate-500 mb-1 pl-1">Price (RM)</label>
+                            <input type="number" step="0.10" v-model.number="form.price" placeholder="0.00" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none focus:bg-white focus:border-indigo-400 transition-all text-slate-800 text-lg">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-500 mb-1 pl-1">Stock Qty</label>
+                            <input type="number" v-model.number="form.stock" placeholder="0" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none focus:bg-white focus:border-indigo-400 transition-all text-slate-800 text-lg">
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-3 mb-4">
+                        <div>
+                            <label class="block text-xs font-bold text-slate-500 mb-1 pl-1">Category</label>
+                            <div class="relative">
+                                <select v-model="form.category" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none focus:bg-white focus:border-indigo-400 transition-all text-slate-800 text-lg appearance-none cursor-pointer">
+                                    <option v-for="cat in predefinedCategories" :key="cat" :value="cat">{{ cat }}</option>
+                                </select>
+                                <span class="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400 text-xs">▼</span>
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-500 mb-1 pl-1">Barcode</label>
+                            <input v-model="form.barcode" placeholder="Optional" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none focus:bg-white focus:border-indigo-400 transition-all text-slate-800 text-lg">
+                        </div>
+                    </div>
+                    <div class="mb-2">
+                        <label class="block text-xs font-bold text-slate-500 mb-2 pl-1">Choose Icon</label>
+                        <div class="flex flex-wrap gap-2 p-3 bg-slate-50 border border-slate-200 rounded-xl max-h-40 overflow-y-auto">
+                            <button v-for="emoji in emojiList" :key="emoji" @click.prevent="form.icon = emoji"
+                                :class="form.icon === emoji ? 'bg-indigo-100 border-indigo-400 scale-110 shadow-sm z-10' : 'bg-white border-slate-200 hover:bg-slate-100'"
+                                class="w-11 h-11 flex items-center justify-center text-2xl rounded-lg border transition-all tap-effect shrink-0">
+                                {{ emoji }}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div class="flex gap-3 pt-4 shrink-0 border-t border-slate-100 mt-2">
+                    <button @click="showForm = false" class="flex-1 bg-white border border-slate-200 text-slate-600 font-bold py-4 rounded-xl tap-effect hover:bg-slate-50 transition-colors">Cancel</button>
+                    <button @click="saveItem" class="flex-1 bg-slate-900 text-white font-bold py-4 rounded-xl shadow-lg shadow-slate-900/20 tap-effect hover:bg-slate-800 transition-colors">Save Item</button>
+                </div>
+            </div>
+        </div>
+
+        <div v-if="showCart" class="absolute inset-0 z-50 flex flex-col items-center justify-end sm:justify-center bg-slate-900/50 backdrop-blur-sm sm:p-4 no-print">
+            <div class="absolute inset-0 sm:hidden" @click="showCart = false"></div>
+            <div class="bg-white w-full max-w-lg rounded-t-[2rem] sm:rounded-[2rem] flex flex-col max-h-[80vh] shadow-2xl relative z-10">
+                <div class="w-12 h-1.5 bg-slate-200 rounded-full mx-auto mt-4 mb-2 sm:hidden"></div>
+                <header class="px-6 py-5 flex justify-between items-center shrink-0 border-b border-slate-100">
+                    <h2 class="text-xl font-extrabold text-slate-800">Current Order</h2>
+                    <button @click="showCart = false" class="text-slate-400 font-bold text-xl bg-slate-50 w-8 h-8 rounded-full flex justify-center items-center hover:bg-slate-100 transition-colors">✕</button>
+                </header>
+                <div class="flex-1 overflow-y-auto p-5 space-y-3">
+                    <div v-if="cart.length === 0" class="text-center text-slate-400 mt-10 font-medium">Cart is empty</div>
+                    <div v-for="(item, index) in cart" :key="index" class="flex items-center justify-between bg-slate-50 p-3 rounded-2xl border border-slate-100">
+                        <div class="flex items-center gap-3">
+                            <span class="text-3xl bg-white w-12 h-12 flex items-center justify-center rounded-xl shadow-sm">{{item.icon}}</span>
+                            <div>
+                                <h4 class="font-bold text-sm text-slate-800 mb-0.5">{{ item.name }}</h4>
+                                <p class="text-indigo-600 font-black text-xs tracking-tight">RM{{ item.price.toFixed(2) }}</p>
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-3 bg-white shadow-sm p-1 rounded-xl border border-slate-100">
+                            <button @click="updateQty(index, -1)" class="w-8 h-8 rounded-lg bg-slate-50 text-slate-600 font-bold text-lg flex items-center justify-center hover:bg-slate-100 tap-effect">-</button>
+                            <span class="font-bold w-4 text-center text-slate-800">{{ item.qty }}</span>
+                            <button @click="updateQty(index, 1)" class="w-8 h-8 rounded-lg bg-slate-50 text-slate-600 font-bold text-lg flex items-center justify-center hover:bg-slate-100 tap-effect">+</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div v-if="showPayment" class="absolute inset-0 z-50 flex items-center justify-center p-6 bg-slate-900/60 backdrop-blur-md no-print">
+            <div class="bg-white w-full max-w-sm rounded-[2rem] p-8 shadow-2xl animate-[scaleUp_0.2s_ease-out]">
+                <p class="text-center text-slate-400 font-bold uppercase tracking-widest text-xs mb-2">Total to Pay</p>
+                <h2 class="text-center text-5xl font-black mb-8 text-slate-800 tracking-tight">RM{{ cartTotal.toFixed(2) }}</h2>
+                <div class="space-y-4">
+                    <button @click="selectPaymentMethod('Cash')" class="w-full bg-[#10b981] hover:bg-[#059669] text-white font-bold text-xl py-4 rounded-[1.25rem] shadow-[0_8px_20px_rgba(16,185,129,0.3)] tap-effect transition-colors flex justify-center items-center gap-2">
+                        💵 CASH
+                    </button>
+                    <button @click="selectPaymentMethod('Sarawak Pay')" class="w-full bg-[#ef4444] hover:bg-[#dc2626] text-white font-bold text-xl py-4 rounded-[1.25rem] shadow-[0_8px_20px_rgba(239,68,68,0.3)] tap-effect transition-colors flex justify-center items-center gap-2">
+                        📱 SARAWAK PAY
+                    </button>
+                    <button @click="selectPaymentMethod('QR')" class="w-full bg-[#3b82f6] hover:bg-[#2563eb] text-white font-bold text-xl py-4 rounded-[1.25rem] shadow-[0_8px_20px_rgba(59,130,246,0.3)] tap-effect transition-colors flex justify-center items-center gap-2">
+                        🔳 OTHER QR
+                    </button>
+                </div>
+                <button @click="showPayment = false" class="w-full mt-6 text-slate-500 font-bold py-3 text-sm tap-effect hover:bg-slate-50 rounded-xl transition-colors">Cancel</button>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        const { createApp, ref, reactive, computed, watch, onMounted } = Vue;
+
+        createApp({
+            setup() {
+                const sessionStarted = ref(false);
+                const carryForwardStock = ref(true); 
+                // State Settings including QR Storage
+                const settings = ref({ 
+                    date: new Date().toISOString().split('T')[0], 
+                    venue: '', 
+                    startTime: '',
+                    qrSarawakPay: '',
+                    qrOther: ''
+                });
+                const currentTab = ref('sell');
+                
+                const searchQuery = ref('');
+                const activeCategory = ref('All');
+                const cart = ref([]);
+                const transactions = ref([]);
+                
+                const showForm = ref(false);
+                const showCart = ref(false);
+                const showPayment = ref(false);
+                const showEndDayModal = ref(false);
+                const showPastRecordModal = ref(false);
+                const showSettingsModal = ref(false);
+                const showQrScannerModal = ref(false);
+                
+                const activeQrType = ref('');
+                const activeQrImage = ref('');
+                
+                const editingItem = ref(null);
+                const form = reactive({ name: '', price: 0, category: 'Food', barcode: '', stock: 0, icon: '📦' });
+                const incomingStock = ref({}); 
+                const dailyStock = ref({});
+                const pastRecords = ref([]);
+                const selectedPastRecord = ref(null);
+
+                const predefinedCategories = ['Food', 'Drinks', 'Dessert', 'Snacks', 'Utils'];
+                const emojiList = [
+                    '📦','🍔','🍟','🌭','🍕','🍝','🌮','🌯','🍜','🍲','🥘','🍳','🍛','🍙','🍱',
+                    '🥐','🥖','🥪','🥞','🧇','🥟','🥡','🍚','🍘','🥗','🍗','🥩','🍤',
+                    '🥥','🍉','🍌','🍋','🍍','🥭','🍎','🍓',
+                    '☕','🍵','🥤','🧋','🍹','🍷','🍺','💧','🥛','🧴',
+                    '🍦','🍧','🍨','🍩','🍪','🎂','🍰','🧁','🥧','🍫','🍬','🍮',
+                    '🛍️','🧻','🛒','🔥','✨'
+                ];
+
+                const defaultItems = [
+                    { id: 1, name: '100 Plus', barcode: '9100008501', price: 3.00, category: 'Drinks', stock: 20, icon: '🥤' },
+                    { id: 2, name: 'Teh Tarik', barcode: '9100008502', price: 3.00, category: 'Drinks', stock: 20, icon: '☕' },
+                    { id: 3, name: 'Kopi O', barcode: '9100137983', price: 2.00, category: 'Drinks', stock: 20, icon: '☕' },
+                    { id: 4, name: 'Nasi Lemak', barcode: '9100684061', price: 5.00, category: 'Food', stock: 20, icon: '🥥' },
+                    { id: 5, name: 'Mee Goreng', barcode: '9100684062', price: 6.00, category: 'Food', stock: 20, icon: '🍝' },
+                    { id: 6, name: 'ABC', barcode: '9100684071', price: 4.00, category: 'Dessert', stock: 20, icon: '🍧' },
+                    { id: 7, name: 'Pisang Goreng', barcode: '9100684078', price: 2.00, category: 'Snacks', stock: 20, icon: '🍌' },
+                    { id: 8, name: 'Plastic Bag', barcode: '9100684092', price: 0.00, category: 'Utils', stock: 100, icon: '🛍️' }
+                ];
+                const items = ref([]);
+
+                onMounted(() => {
+                    const savedState = localStorage.getItem('proStallPos');
+                    if (savedState) {
+                        const parsed = JSON.parse(savedState);
+                        sessionStarted.value = parsed.sessionStarted;
+                        settings.value = { ...settings.value, ...parsed.settings }; // Merge to keep new keys
+                        items.value = parsed.items && parsed.items.length ? parsed.items : defaultItems;
+                        transactions.value = parsed.transactions || [];
+                        dailyStock.value = parsed.dailyStock || {};
+                        pastRecords.value = parsed.pastRecords || [];
+                    } else {
+                        items.value = [...defaultItems];
+                    }
+                });
+
+                watch([sessionStarted, settings, items, transactions, dailyStock, pastRecords], () => {
+                    localStorage.setItem('proStallPos', JSON.stringify({
+                        sessionStarted: sessionStarted.value,
+                        settings: settings.value,
+                        items: items.value,
+                        transactions: transactions.value,
+                        dailyStock: dailyStock.value,
+                        pastRecords: pastRecords.value
+                    }));
+                }, { deep: true });
+
+                // Image Compression to prevent LocalStorage quota overflow
+                const compressAndSaveImage = (event, targetSettingKey) => {
+                    const file = event.target.files[0];
+                    if (!file) return;
+                    
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        const img = new Image();
+                        img.onload = () => {
+                            const canvas = document.createElement('canvas');
+                            const MAX_DIMENSION = 500; // Small safe size for QR codes
+                            let width = img.width;
+                            let height = img.height;
+
+                            if (width > height) {
+                                if (width > MAX_DIMENSION) { height *= MAX_DIMENSION / width; width = MAX_DIMENSION; }
+                            } else {
+                                if (height > MAX_DIMENSION) { width *= MAX_DIMENSION / height; height = MAX_DIMENSION; }
+                            }
+
+                            canvas.width = width;
+                            canvas.height = height;
+                            const ctx = canvas.getContext('2d');
+                            ctx.drawImage(img, 0, 0, width, height);
+                            
+                            // Save as compressed JPEG
+                            const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+                            settings.value[targetSettingKey] = dataUrl;
+                        };
+                        img.src = e.target.result;
+                    };
+                    reader.readAsDataURL(file);
+                };
+
+                const totalSales = computed(() => transactions.value.reduce((sum, t) => sum + t.total, 0));
+                const salesByMethod = (method) => transactions.value.filter(t => t.method === method).reduce((sum, t) => sum + t.total, 0);
+                const calculateVar = (item) => {
+                    if (!dailyStock.value[item.id]) return 0;
+                    const ds = dailyStock.value[item.id];
+                    return item.stock - (ds.open + ds.in - ds.sold);
+                };
+
+                const activeReportData = computed(() => {
+                    if (showPastRecordModal.value && selectedPastRecord.value) return selectedPastRecord.value;
+                    return {
+                        date: settings.value.date, venue: settings.value.venue, startTime: settings.value.startTime, endTime: null,
+                        totalSales: totalSales.value, salesCount: transactions.value.length,
+                        salesByMethod: { 'Cash': salesByMethod('Cash'), 'Sarawak Pay': salesByMethod('Sarawak Pay'), 'QR': salesByMethod('QR') },
+                        stockMovement: items.value.map(item => {
+                            const ds = dailyStock.value[item.id] || { open: item.stock, in: 0, sold: 0 };
+                            return { name: item.name, open: ds.open, in: ds.in, sold: ds.sold, close: item.stock, var: calculateVar(item) };
+                        })
+                    };
+                });
+
+                const startDay = () => {
+                    if(!settings.value.venue) { alert("Please enter venue name!"); return; }
+                    if(!carryForwardStock.value) { items.value.forEach(item => { item.stock = 0; }); }
+                    
+                    settings.value.startTime = new Date().toLocaleTimeString('en-US');
+                    let tracker = {};
+                    items.value.forEach(item => { tracker[item.id] = { open: item.stock, in: 0, sold: 0 }; });
+                    dailyStock.value = tracker;
+                    
+                    sessionStarted.value = true;
+                    currentTab.value = 'sell';
+                };
+
+                const confirmEndDay = () => {
+                    pastRecords.value.unshift({ id: Date.now(), ...activeReportData.value, endTime: new Date().toLocaleTimeString('en-US') });
+                    sessionStarted.value = false;
+                    transactions.value = [];
+                    dailyStock.value = {};
+                    settings.value.startTime = '';
+                    showEndDayModal.value = false;
+                    currentTab.value = 'past';
+                };
+
+                const viewPastRecord = (record) => { selectedPastRecord.value = record; showPastRecordModal.value = true; };
+                const closeRecordModals = () => { showEndDayModal.value = false; showPastRecordModal.value = false; selectedPastRecord.value = null; };
+                const printReport = () => { window.print(); };
+
+                const resetData = () => {
+                    if(confirm("WARNING: This will delete ALL data, inventory, and sales histories!")) {
+                        localStorage.removeItem('proStallPos');
+                        location.reload();
+                    }
+                };
+
+                const dynamicCategories = computed(() => {
+                    const cats = items.value.map(i => i.category);
+                    return ['All', ...new Set(cats.filter(c => c))];
+                });
+
+                const openForm = () => { resetForm(); showForm.value = true; };
+
+                const saveItem = () => {
+                    if(!form.name) return alert("Item name is required!");
+                    if (editingItem.value) {
+                        Object.assign(editingItem.value, form);
+                    } else {
+                        const newId = Date.now();
+                        items.value.push({ ...form, id: newId });
+                        if(sessionStarted.value) { dailyStock.value[newId] = { open: form.stock, in: 0, sold: 0 }; }
+                    }
+                    showForm.value = false;
+                };
+
+                const editItem = (item) => { editingItem.value = item; Object.assign(form, item); showForm.value = true; };
+
+                const deleteItem = (index) => {
+                    if(confirm('Delete this item completely?')) {
+                        const id = items.value[index].id;
+                        items.value.splice(index, 1);
+                        delete incomingStock.value[id];
+                        if(dailyStock.value[id]) delete dailyStock.value[id]; 
+                    }
+                };
+
+                const resetForm = () => { form.name = ''; form.price = 0; form.category = 'Food'; form.barcode = ''; form.stock = 10; form.icon = '📦'; editingItem.value = null; };
+
+                const applyStock = () => {
+                    let hasUpdates = false;
+                    items.value.forEach(item => {
+                        const qtyToAdd = parseInt(incomingStock.value[item.id]);
+                        if (qtyToAdd && qtyToAdd > 0) {
+                            item.stock += qtyToAdd;
+                            if(dailyStock.value[item.id]) { dailyStock.value[item.id].in += qtyToAdd; } 
+                            hasUpdates = true;
+                        }
+                    });
+                    if (hasUpdates) {
+                        alert("Stock updated successfully!");
+                        incomingStock.value = {}; 
+                        currentTab.value = 'items'; 
+                    } else {
+                        alert("No stock quantities added.");
+                    }
+                };
+
+                const filteredItems = computed(() => {
+                    return items.value.filter(item => {
+                        const matchCat = activeCategory.value === 'All' || item.category === activeCategory.value;
+                        const query = searchQuery.value.toLowerCase();
+                        const matchSearch = item.name.toLowerCase().includes(query) || (item.barcode && item.barcode.endsWith(query));
+                        return matchCat && matchSearch;
+                    });
+                });
+
+                const addToCart = (item) => {
+                    const existing = cart.value.find(c => c.id === item.id);
+                    if (existing) { existing.qty++; } else { cart.value.push({ ...item, qty: 1 }); }
+                };
+
+                const updateQty = (index, change) => {
+                    cart.value[index].qty += change;
+                    if (cart.value[index].qty <= 0) { cart.value.splice(index, 1); }
+                };
+
+                const cartCount = computed(() => cart.value.reduce((sum, item) => sum + item.qty, 0));
+                const cartTotal = computed(() => cart.value.reduce((sum, item) => sum + (item.price * item.qty), 0));
+
+                // NEW PAYMENT FLOW
+                const selectPaymentMethod = (method) => {
+                    if (method === 'Cash') {
+                        finalizePayment('Cash');
+                    } else {
+                        activeQrType.value = method;
+                        activeQrImage.value = method === 'Sarawak Pay' ? settings.value.qrSarawakPay : settings.value.qrOther;
+                        showPayment.value = false;
+                        showQrScannerModal.value = true;
+                    }
+                };
+
+                const cancelQrPayment = () => {
+                    showQrScannerModal.value = false;
+                    showPayment.value = true;
+                };
+
+                const finalizePayment = (method) => {
+                    cart.value.forEach(cartItem => {
+                        const dbItem = items.value.find(i => i.id === cartItem.id);
+                        if (dbItem) {
+                            dbItem.stock -= cartItem.qty;
+                            if(dailyStock.value[dbItem.id]) { dailyStock.value[dbItem.id].sold += cartItem.qty; } 
+                        }
+                    });
+                    transactions.value.push({ time: new Date().toISOString(), method: method, total: cartTotal.value, items: [...cart.value] });
+                    cart.value = []; 
+                    showPayment.value = false; 
+                    showQrScannerModal.value = false;
+                    showCart.value = false;
+                };
+
+                const undoLastSale = () => {
+                    if (transactions.value.length === 0) return;
+                    if (confirm("Are you sure you want to undo the last transaction?")) {
+                        const lastTx = transactions.value.pop();
+                        lastTx.items.forEach(cartItem => {
+                            const dbItem = items.value.find(i => i.id === cartItem.id);
+                            if (dbItem) {
+                                dbItem.stock += cartItem.qty;
+                                if(dailyStock.value[dbItem.id]) { dailyStock.value[dbItem.id].sold -= cartItem.qty; } 
+                            }
+                        });
+                        alert("Transaction reversed. Stock refunded.");
+                    }
+                };
+
+                return {
+                    sessionStarted, carryForwardStock, settings, currentTab, searchQuery, activeCategory, dynamicCategories, items, filteredItems, pastRecords,
+                    showCart, showPayment, showForm, showEndDayModal, showPastRecordModal, activeReportData, predefinedCategories, emojiList,
+                    showSettingsModal, showQrScannerModal, activeQrType, activeQrImage, compressAndSaveImage, selectPaymentMethod, cancelQrPayment, finalizePayment,
+                    form, cart, cartCount, cartTotal, transactions, editingItem, incomingStock, dailyStock,
+                    startDay, confirmEndDay, viewPastRecord, closeRecordModals, printReport, resetData, openForm, saveItem, editItem, deleteItem, applyStock, calculateVar,
+                    addToCart, updateQty, undoLastSale
+                };
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>
