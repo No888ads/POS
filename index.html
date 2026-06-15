@@ -31,7 +31,13 @@
 <body class="text-slate-800 select-none">
     <div id="app" class="max-w-5xl mx-auto bg-slate-50 min-h-screen shadow-2xl relative flex flex-col overflow-hidden border-x border-slate-200">
         
-        <div v-if="!sessionStarted" class="flex-1 flex flex-col justify-center items-center bg-slate-100 p-5 relative">
+        <div v-if="isLoadingCloudData" class="flex-1 flex flex-col justify-center items-center h-screen bg-slate-50 z-50">
+            <div class="text-6xl mb-6 animate-bounce">☁️</div>
+            <h2 class="text-2xl font-extrabold text-slate-800 mb-2">Connecting to Cloud...</h2>
+            <p class="text-sm text-slate-500 font-medium">Syncing your POS data with Google Sheets</p>
+        </div>
+
+        <div v-else-if="!sessionStarted" class="flex-1 flex flex-col justify-center items-center bg-slate-100 p-5 relative">
             <div class="absolute top-0 left-0 w-full h-64 bg-gradient-to-b from-indigo-100 to-transparent pointer-events-none"></div>
 
             <div class="bg-white p-8 rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-slate-100 w-full max-w-sm z-10">
@@ -55,7 +61,16 @@
                     <h2 class="text-xl font-extrabold text-slate-800 leading-tight tracking-tight truncate">{{ settings.venue }}</h2>
                     <p class="text-xs font-medium text-slate-400">{{ settings.date }} <span v-if="settings.startTime" class="text-indigo-500 font-semibold">• started {{ settings.startTime }}</span></p>
                 </div>
-                <div class="flex gap-2 shrink-0">
+                <div class="flex gap-2 shrink-0 items-center">
+                    <div v-if="isSyncing" class="mr-1 hidden sm:flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 text-indigo-600 rounded-full animate-pulse">
+                        <span class="text-lg leading-none">☁️</span>
+                        <span class="text-xs font-bold uppercase tracking-wider">Syncing</span>
+                    </div>
+                    <div v-else-if="lastSyncTime" class="mr-1 hidden sm:flex items-center gap-1.5 px-3 py-1.5">
+                        <span class="text-lg leading-none opacity-50 grayscale">☁️</span>
+                        <span class="text-xs font-bold text-slate-400">Saved {{lastSyncTime}}</span>
+                    </div>
+
                     <button @click="showSettingsModal = true" class="w-10 h-10 flex items-center justify-center bg-slate-100 text-slate-600 rounded-xl text-lg tap-effect hover:bg-slate-200 transition-colors">⚙️</button>
                     <button @click="showEndDayModal = true" class="bg-slate-800 text-white px-4 py-2 rounded-xl font-bold text-sm tap-effect hover:bg-slate-700 transition-colors shadow-sm">End Day</button>
                 </div>
@@ -513,7 +528,7 @@
                                         </tr>
                                     </thead>
                                     <tbody class="divide-y divide-slate-100 bg-white">
-                                        <tr v-if="reversedPastTransactions.length === 0">
+                                        <tr v-if="!activeReportData.transactionsList || activeReportData.transactionsList.length === 0">
                                             <td colspan="4" class="p-6 text-center text-slate-400">No transaction history saved for this record.</td>
                                         </tr>
                                         <tr v-for="(tx, idx) in reversedPastTransactions" :key="idx" class="hover:bg-slate-50 transition-colors">
@@ -558,6 +573,13 @@
                 const sessionStarted = ref(false);
                 const carryForwardStock = ref(true); 
                 
+                // Cloud Sync Variables
+                const scriptURL = 'https://script.google.com/macros/s/AKfycbw4L94rvn4ctk-JPDJZSv4TKulzRdHR01UsPFDKzhvMa2s7RogXkiAYB801p_KnVEK-pw/exec'; // GANTI INI DENGAN URL APPS SCRIPT AWAK
+                const isLoadingCloudData = ref(false);
+                const isSyncing = ref(false);
+                const lastSyncTime = ref('');
+                let syncTimeout;
+
                 const settings = ref({ 
                     date: new Date().toISOString().split('T')[0], 
                     venue: '', 
@@ -613,31 +635,56 @@
                 ];
                 const items = ref([]);
 
-                onMounted(() => {
+                const applyData = (parsed) => {
+                    sessionStarted.value = !!parsed.sessionStarted;
+                    settings.value = { ...settings.value, ...(parsed.settings || {}) };
+                    items.value = (Array.isArray(parsed.items) && parsed.items.length) ? parsed.items : defaultItems;
+                    transactions.value = Array.isArray(parsed.transactions) ? parsed.transactions : [];
+                    dailyStock.value = (parsed.dailyStock && typeof parsed.dailyStock === 'object') ? parsed.dailyStock : {};
+                    pastRecords.value = Array.isArray(parsed.pastRecords) ? parsed.pastRecords : [];
+                    if(Array.isArray(parsed.customCategories) && parsed.customCategories.length > 0) {
+                        customCategories.value = parsed.customCategories;
+                    }
+                };
+
+                const loadLocal = () => {
                     const savedState = localStorage.getItem('proStallPos');
                     if (savedState) {
                         try {
-                            const parsed = JSON.parse(savedState);
-                            sessionStarted.value = !!parsed.sessionStarted;
-                            settings.value = { ...settings.value, ...(parsed.settings || {}) };
-                            items.value = (Array.isArray(parsed.items) && parsed.items.length) ? parsed.items : defaultItems;
-                            transactions.value = Array.isArray(parsed.transactions) ? parsed.transactions : [];
-                            dailyStock.value = (parsed.dailyStock && typeof parsed.dailyStock === 'object') ? parsed.dailyStock : {};
-                            pastRecords.value = Array.isArray(parsed.pastRecords) ? parsed.pastRecords : [];
-                            
-                            if(Array.isArray(parsed.customCategories) && parsed.customCategories.length > 0) {
-                                customCategories.value = parsed.customCategories;
-                            }
+                            applyData(JSON.parse(savedState));
                         } catch(e) {
                             items.value = [...defaultItems];
                         }
                     } else {
                         items.value = [...defaultItems];
                     }
+                };
+
+                onMounted(async () => {
+                    if(scriptURL !== 'YOUR_GOOGLE_APPS_SCRIPT_WEB_APP_URL_HERE' && scriptURL.startsWith('http')) {
+                        isLoadingCloudData.value = true;
+                        try {
+                            const response = await fetch(scriptURL);
+                            const cloudText = await response.text();
+                            if (cloudText && cloudText.trim().startsWith('{')) {
+                                applyData(JSON.parse(cloudText));
+                            } else {
+                                loadLocal();
+                            }
+                        } catch (e) {
+                            console.error("Cloud fetch failed", e);
+                            loadLocal();
+                        }
+                        isLoadingCloudData.value = false;
+                    } else {
+                        // Jika URL Google Sheet tak letak, guna Local Storage seperti biasa
+                        loadLocal();
+                    }
                 });
 
                 watch([sessionStarted, settings, items, transactions, dailyStock, pastRecords, customCategories], () => {
-                    localStorage.setItem('proStallPos', JSON.stringify({
+                    // Buat Backup Dalam Local Storage Dulu (Kalau tiada line internet)
+                    const dataToSave = JSON.stringify({
                         sessionStarted: sessionStarted.value,
                         settings: settings.value,
                         items: items.value,
@@ -645,7 +692,29 @@
                         dailyStock: dailyStock.value,
                         pastRecords: pastRecords.value,
                         customCategories: customCategories.value 
-                    }));
+                    });
+                    localStorage.setItem('proStallPos', dataToSave);
+
+                    // Hantar Data ke Google Sheets (Cloud)
+                    if(scriptURL !== 'YOUR_GOOGLE_APPS_SCRIPT_WEB_APP_URL_HERE' && scriptURL.startsWith('http')) {
+                        isSyncing.value = true;
+                        clearTimeout(syncTimeout);
+                        // Delay 3 saat untuk elak spam Google Server
+                        syncTimeout = setTimeout(() => {
+                            fetch(scriptURL, {
+                                method: 'POST',
+                                body: dataToSave,
+                                headers: { 'Content-Type': 'text/plain;charset=utf-8' }
+                            }).then(() => {
+                                isSyncing.value = false;
+                                lastSyncTime.value = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+                            }).catch(e => {
+                                console.error('Cloud Sync failed', e);
+                                isSyncing.value = false;
+                            });
+                        }, 3000); 
+                    }
+
                 }, { deep: true });
 
                 const compressAndSaveImage = (event, targetSettingKey) => {
@@ -706,19 +775,16 @@
                     return [...transactions.value].reverse();
                 });
 
-                // PEMBETULAN UTAMA: Tambah reversedPastTransactions untuk digunakan di bahagian Print/Past Records
                 const reversedPastTransactions = computed(() => {
                     if (!activeReportData.value || !Array.isArray(activeReportData.value.transactionsList)) return [];
                     return [...activeReportData.value.transactionsList].reverse();
                 });
 
-                // PEMBETULAN UTAMA: Pastikan computed function ini disalurkan ke return { ... } di bawah
                 const totalSales = computed(() => {
                     if (!Array.isArray(transactions.value)) return 0;
                     return transactions.value.reduce((sum, t) => sum + (Number(t.total) || 0), 0);
                 });
 
-                // PEMBETULAN UTAMA: Pastikan function ini disalurkan ke return { ... } di bawah
                 const salesByMethod = (method) => {
                     if (!Array.isArray(transactions.value)) return 0;
                     return transactions.value.filter(t => t.method === method).reduce((sum, t) => sum + (Number(t.total) || 0), 0);
@@ -974,7 +1040,6 @@
                     }
                 };
 
-                // PEMBETULAN UTAMA: SEMUA variables & fungsi mesti diletakkan di sini.
                 return {
                     sessionStarted, carryForwardStock, settings, currentTab, searchQuery, activeCategory, dynamicCategories, items, filteredItems, pastRecords,
                     showCart, showPayment, showForm, showEndDayModal, showPastRecordModal, activeReportData, emojiList,
@@ -983,7 +1048,8 @@
                     startDay, confirmEndDay, viewPastRecord, closeRecordModals, printReport, resetData, openForm, saveItem, editItem, deleteItem, applyStock, calculateVar,
                     addToCart, updateQty, undoLastSale, formatTime, formatMoney, safeDailyStock,
                     reversedTransactions, reversedPastTransactions, totalSales, salesByMethod,
-                    customCategories, addCategory, editCategory, deleteCategory
+                    customCategories, addCategory, editCategory, deleteCategory,
+                    isLoadingCloudData, isSyncing, lastSyncTime
                 };
             }
         }).mount('#app');
