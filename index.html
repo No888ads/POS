@@ -14,7 +14,7 @@
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
         .tap-effect:active { transform: scale(0.97); transition: transform 0.1s ease; }
         
-        /* Print Setting Multi-Page */
+        /* Print Setting Multi-Page Kebal */
         @media print {
             html, body, #app { height: auto !important; min-height: auto !important; width: 100% !important; overflow: visible !important; position: static !important; background-color: white !important; }
             #app > div { display: none !important; }
@@ -513,10 +513,10 @@
                                         </tr>
                                     </thead>
                                     <tbody class="divide-y divide-slate-100 bg-white">
-                                        <tr v-if="!activeReportData.transactionsList || activeReportData.transactionsList.length === 0">
+                                        <tr v-if="reversedPastTransactions.length === 0">
                                             <td colspan="4" class="p-6 text-center text-slate-400">No transaction history saved for this record.</td>
                                         </tr>
-                                        <tr v-for="(tx, idx) in (activeReportData.transactionsList || []).slice().reverse()" :key="idx" class="hover:bg-slate-50 transition-colors">
+                                        <tr v-for="(tx, idx) in reversedPastTransactions" :key="idx" class="hover:bg-slate-50 transition-colors">
                                             <td class="p-4 pl-5 whitespace-nowrap text-xs font-semibold">{{ formatTime(tx.time) }}</td>
                                             <td class="p-4 font-bold text-xs" :class="tx.method === 'Cash' ? 'text-emerald-500' : 'text-blue-500'">{{ tx.method || '-' }}</td>
                                             <td class="p-4 text-xs text-slate-500">
@@ -706,11 +706,19 @@
                     return [...transactions.value].reverse();
                 });
 
+                // PEMBETULAN UTAMA: Tambah reversedPastTransactions untuk digunakan di bahagian Print/Past Records
+                const reversedPastTransactions = computed(() => {
+                    if (!activeReportData.value || !Array.isArray(activeReportData.value.transactionsList)) return [];
+                    return [...activeReportData.value.transactionsList].reverse();
+                });
+
+                // PEMBETULAN UTAMA: Pastikan computed function ini disalurkan ke return { ... } di bawah
                 const totalSales = computed(() => {
                     if (!Array.isArray(transactions.value)) return 0;
                     return transactions.value.reduce((sum, t) => sum + (Number(t.total) || 0), 0);
                 });
 
+                // PEMBETULAN UTAMA: Pastikan function ini disalurkan ke return { ... } di bawah
                 const salesByMethod = (method) => {
                     if (!Array.isArray(transactions.value)) return 0;
                     return transactions.value.filter(t => t.method === method).reduce((sum, t) => sum + (Number(t.total) || 0), 0);
@@ -966,6 +974,7 @@
                     }
                 };
 
+                // PEMBETULAN UTAMA: SEMUA variables & fungsi mesti diletakkan di sini.
                 return {
                     sessionStarted, carryForwardStock, settings, currentTab, searchQuery, activeCategory, dynamicCategories, items, filteredItems, pastRecords,
                     showCart, showPayment, showForm, showEndDayModal, showPastRecordModal, activeReportData, emojiList,
@@ -973,7 +982,7 @@
                     form, cart, cartCount, cartTotal, transactions, editingItem, incomingStock, dailyStock,
                     startDay, confirmEndDay, viewPastRecord, closeRecordModals, printReport, resetData, openForm, saveItem, editItem, deleteItem, applyStock, calculateVar,
                     addToCart, updateQty, undoLastSale, formatTime, formatMoney, safeDailyStock,
-                    reversedTransactions, totalSales, salesByMethod,
+                    reversedTransactions, reversedPastTransactions, totalSales, salesByMethod,
                     customCategories, addCategory, editCategory, deleteCategory
                 };
             }
