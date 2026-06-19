@@ -14,13 +14,29 @@
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
         .tap-effect:active { transform: scale(0.97); transition: transform 0.1s ease; }
         
-        /* Print Setting Multi-Page Kebal */
+        /* === KAWALAN PRINT (A4 REPORT & THERMAL RECEIPT) === */
         @media print {
             html, body, #app { height: auto !important; min-height: auto !important; width: 100% !important; overflow: visible !important; position: static !important; background-color: white !important; }
             #app > div { display: none !important; }
-            #app > div:has(#print-area) { display: block !important; }
-            #app > div:has(#print-area), #app > div:has(#print-area) > div, #print-area { position: static !important; display: block !important; height: auto !important; max-height: none !important; overflow: visible !important; width: 100% !important; padding: 0 !important; margin: 0 !important; box-shadow: none !important; background: white !important; transform: none !important; }
-            #print-area .overflow-y-auto, #print-area .flex-1, #print-area .overflow-hidden { height: auto !important; max-height: none !important; overflow: visible !important; display: block !important; }
+            
+            /* Tayang modal yang sedang aktif sahaja */
+            #app > div:has(#print-report-area) { display: block !important; }
+            #app > div:has(#print-receipt-area) { display: block !important; }
+
+            /* Format Untuk A4 Report (End of Day) */
+            #print-report-area { position: static !important; display: block !important; height: auto !important; width: 100% !important; margin: 0 !important; background: white !important; }
+            #print-report-area .overflow-y-auto, #print-report-area .overflow-x-auto, #print-report-area .overflow-hidden { height: auto !important; max-height: none !important; overflow: visible !important; display: block !important; }
+            
+            /* Format Khas Untuk Resit Kedai (Thermal Printer 80mm) */
+            #print-receipt-area { 
+                position: absolute !important; left: 0 !important; top: 0 !important; 
+                width: 80mm !important; /* Lebar kertas resit kedai standard */
+                margin: 0 !important; padding: 5mm !important; 
+                font-family: 'Courier New', Courier, monospace !important; 
+                color: black !important; background: white !important; 
+            }
+            #print-receipt-area * { box-shadow: none !important; border-color: black !important; }
+
             table { page-break-inside: auto; width: 100% !important; }
             tr { page-break-inside: avoid; page-break-after: auto; }
             thead { display: table-header-group; }
@@ -235,23 +251,25 @@
                                 <table class="w-full text-left text-sm text-slate-600 min-w-[500px]">
                                     <thead class="bg-white border-b border-slate-100 text-[11px] sm:text-xs font-bold text-slate-500 uppercase sm:normal-case tracking-wider sm:tracking-normal">
                                         <tr>
-                                            <th class="p-4 pl-5">Time</th>
+                                            <th class="p-4 pl-5">No. Resit</th>
+                                            <th class="p-4">Time</th>
                                             <th class="p-4">Method</th>
-                                            <th class="p-4">Items</th>
                                             <th class="p-4 text-right pr-5">Total</th>
+                                            <th class="p-4 text-center">Action</th>
                                         </tr>
                                     </thead>
                                     <tbody class="divide-y divide-slate-100 bg-white">
                                         <tr v-if="!reversedTransactions || reversedTransactions.length === 0">
-                                            <td colspan="4" class="p-6 text-center text-slate-400">No transactions recorded yet.</td>
+                                            <td colspan="5" class="p-6 text-center text-slate-400">No transactions recorded yet.</td>
                                         </tr>
                                         <tr v-for="(tx, idx) in reversedTransactions" :key="idx" class="hover:bg-slate-50 transition-colors">
-                                            <td class="p-4 pl-5 whitespace-nowrap text-xs font-semibold">{{ formatTime(tx.time) }}</td>
+                                            <td class="p-4 pl-5 font-bold text-xs text-indigo-600">{{ tx.receiptNo || '-' }}</td>
+                                            <td class="p-4 whitespace-nowrap text-xs font-semibold">{{ formatTime(tx.time) }}</td>
                                             <td class="p-4 font-bold text-xs" :class="tx.method === 'Cash' ? 'text-emerald-500' : 'text-blue-500'">{{ tx.method || '-' }}</td>
-                                            <td class="p-4 text-xs text-slate-500">
-                                                <div v-for="(i, iIdx) in (tx.items || [])" :key="iIdx">{{i.qty}}x {{i.name}}</div>
-                                            </td>
                                             <td class="p-4 text-right pr-5 font-black text-slate-800">RM {{ formatMoney(tx.total) }}</td>
+                                            <td class="p-4 text-center">
+                                                <button @click="reprintReceipt(tx)" class="px-3 py-1 bg-slate-100 text-slate-600 text-xs font-bold rounded-lg hover:bg-slate-200 transition-colors">Print</button>
+                                            </td>
                                         </tr>
                                     </tbody>
                                 </table>
@@ -286,6 +304,92 @@
             </div>
 
         </div>
+
+        <div v-if="showCashCalculator" class="absolute inset-0 z-50 flex items-center justify-center p-6 bg-slate-900/80 backdrop-blur-md no-print">
+            <div class="bg-white w-full max-w-sm rounded-[2rem] p-8 shadow-2xl animate-[scaleUp_0.2s_ease-out]">
+                <h3 class="font-bold text-slate-400 uppercase tracking-widest text-xs mb-1 text-center">Total to Pay</h3>
+                <h2 class="text-5xl font-black text-slate-800 mb-6 tracking-tight text-center">RM{{ formatMoney(cartTotal) }}</h2>
+                
+                <div class="mb-6">
+                    <label class="block text-sm font-bold text-slate-700 mb-2 text-center">Cash Received (RM)</label>
+                    <input type="number" step="0.10" v-model.number="amountTendered" class="w-full text-4xl font-black text-center p-4 bg-slate-50 border-2 border-indigo-100 rounded-2xl outline-none focus:border-indigo-500 text-emerald-600 transition-all">
+                </div>
+
+                <div class="mb-8 p-4 bg-slate-100 rounded-xl flex justify-between items-center">
+                    <span class="font-bold text-slate-600">Change (Baki)</span>
+                    <span class="font-black text-2xl" :class="changeAmount < 0 ? 'text-red-500' : 'text-slate-800'">
+                        RM{{ formatMoney(changeAmount) }}
+                    </span>
+                </div>
+
+                <button @click="finalizePayment('Cash')" :disabled="changeAmount < 0" class="w-full bg-[#10b981] disabled:bg-slate-300 hover:bg-[#059669] text-white font-bold text-lg py-4 rounded-2xl shadow-lg shadow-emerald-500/30 tap-effect transition-colors mb-3">
+                    Confirm Payment
+                </button>
+                <button @click="showCashCalculator = false; showPayment = true" class="w-full text-slate-500 font-bold py-3 text-sm tap-effect hover:bg-slate-50 rounded-xl transition-colors">
+                    Back
+                </button>
+            </div>
+        </div>
+
+        <div v-if="showReceiptModal" class="absolute inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-md">
+            <div class="w-full max-w-sm flex flex-col items-center animate-[scaleUp_0.2s_ease-out]">
+                
+                <div id="print-receipt-area" class="w-full bg-white p-6 shadow-2xl relative">
+                    <div class="text-center mb-6 border-b-2 border-dashed border-slate-300 pb-4">
+                        <h2 class="font-black text-xl text-black mb-1 uppercase">{{ settings.venue }}</h2>
+                        <p class="text-xs text-black font-medium">{{ settings.date }} • {{ formatTime(currentReceipt.time) }}</p>
+                        <p class="text-xs text-black font-bold mt-1">NO: {{ currentReceipt.receiptNo }}</p>
+                    </div>
+
+                    <table class="w-full text-black text-sm font-medium mb-4">
+                        <thead class="border-b border-black">
+                            <tr>
+                                <th class="text-left pb-1">Item</th>
+                                <th class="text-center pb-1">Qty</th>
+                                <th class="text-right pb-1">Amt</th>
+                            </tr>
+                        </thead>
+                        <tbody class="border-b border-black">
+                            <tr v-for="item in currentReceipt.items" :key="item.id">
+                                <td class="py-1">{{ item.name }}</td>
+                                <td class="text-center py-1">{{ item.qty }}</td>
+                                <td class="text-right py-1">{{ formatMoney(item.price * item.qty) }}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+
+                    <div class="flex justify-between items-center mb-1 text-black">
+                        <span class="font-bold">TOTAL</span>
+                        <span class="font-black text-lg">RM{{ formatMoney(currentReceipt.total) }}</span>
+                    </div>
+                    
+                    <div class="flex justify-between items-center text-xs text-black mb-1">
+                        <span>Paid by: {{ currentReceipt.method }}</span>
+                        <span>RM{{ formatMoney(currentReceipt.tendered) }}</span>
+                    </div>
+                    
+                    <div v-if="currentReceipt.method === 'Cash'" class="flex justify-between items-center text-xs text-black font-bold">
+                        <span>Change:</span>
+                        <span>RM{{ formatMoney(currentReceipt.change) }}</span>
+                    </div>
+
+                    <div class="text-center mt-8 pt-4 border-t-2 border-dashed border-slate-300">
+                        <p class="font-bold text-sm text-black">TERIMA KASIH</p>
+                        <p class="text-xs text-black mt-1">Sila datang lagi</p>
+                    </div>
+                </div>
+
+                <div class="w-full flex gap-3 mt-6 no-print">
+                    <button @click="printReceipt" class="flex-1 bg-white text-slate-800 font-bold py-4 rounded-xl shadow-lg tap-effect transition-colors flex items-center justify-center gap-2">
+                        <span class="text-xl">🖨️</span> Print Receipt
+                    </button>
+                    <button @click="showReceiptModal = false" class="flex-1 bg-indigo-600 text-white font-bold py-4 rounded-xl shadow-lg tap-effect hover:bg-indigo-700 transition-colors">
+                        Next Customer ➔
+                    </button>
+                </div>
+            </div>
+        </div>
+
 
         <div v-if="showSettingsModal" class="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 no-print">
             <div class="bg-white w-full max-w-md rounded-[2rem] p-6 sm:p-8 shadow-2xl animate-[slideUp_0.2s_ease-out] max-h-[90vh] overflow-y-auto">
@@ -459,7 +563,7 @@
 
         <div v-if="showEndDayModal || showPastRecordModal" class="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
             <div class="bg-white w-full max-w-2xl max-h-full rounded-[2rem] flex flex-col shadow-2xl animate-[scaleUp_0.2s_ease-out]">
-                <div id="print-area" class="flex flex-col flex-1 overflow-hidden rounded-t-[2rem]">
+                <div id="print-report-area" class="flex flex-col flex-1 overflow-hidden rounded-t-[2rem]">
                     <div class="flex justify-between items-center p-6 border-b border-slate-100 shrink-0 bg-white">
                         <h3 class="font-bold text-slate-800 text-lg">{{ showPastRecordModal ? 'Past End of Day Report' : 'End of Day Report — Preview' }}</h3>
                         <button @click="closeRecordModals" class="text-slate-400 hover:text-slate-600 font-bold text-xl no-print bg-slate-100 w-8 h-8 rounded-full flex items-center justify-center">✕</button>
@@ -573,8 +677,7 @@
                 const sessionStarted = ref(false);
                 const carryForwardStock = ref(true); 
                 
-                // Cloud Sync Variables
-                const scriptURL = 'https://script.google.com/macros/s/AKfycbw4L94rvn4ctk-JPDJZSv4TKulzRdHR01UsPFDKzhvMa2s7RogXkiAYB801p_KnVEK-pw/exec'; // GANTI INI DENGAN URL APPS SCRIPT AWAK
+                const scriptURL = 'YOUR_GOOGLE_APPS_SCRIPT_WEB_APP_URL_HERE'; // GANTI INI DENGAN URL APPS SCRIPT AWAK
                 const isLoadingCloudData = ref(false);
                 const isSyncing = ref(false);
                 const lastSyncTime = ref('');
@@ -601,6 +704,12 @@
                 const showPastRecordModal = ref(false);
                 const showSettingsModal = ref(false);
                 const showQrScannerModal = ref(false);
+                
+                // AUTOCOUNT: States untuk Kalkulator Tunai & Resit Thermal
+                const showCashCalculator = ref(false);
+                const amountTendered = ref('');
+                const showReceiptModal = ref(false);
+                const currentReceipt = ref(null);
                 
                 const activeQrType = ref('');
                 const activeQrImage = ref('');
@@ -677,13 +786,11 @@
                         }
                         isLoadingCloudData.value = false;
                     } else {
-                        // Jika URL Google Sheet tak letak, guna Local Storage seperti biasa
                         loadLocal();
                     }
                 });
 
                 watch([sessionStarted, settings, items, transactions, dailyStock, pastRecords, customCategories], () => {
-                    // Buat Backup Dalam Local Storage Dulu (Kalau tiada line internet)
                     const dataToSave = JSON.stringify({
                         sessionStarted: sessionStarted.value,
                         settings: settings.value,
@@ -695,11 +802,9 @@
                     });
                     localStorage.setItem('proStallPos', dataToSave);
 
-                    // Hantar Data ke Google Sheets (Cloud)
                     if(scriptURL !== 'YOUR_GOOGLE_APPS_SCRIPT_WEB_APP_URL_HERE' && scriptURL.startsWith('http')) {
                         isSyncing.value = true;
                         clearTimeout(syncTimeout);
-                        // Delay 3 saat untuk elak spam Google Server
                         syncTimeout = setTimeout(() => {
                             fetch(scriptURL, {
                                 method: 'POST',
@@ -714,7 +819,6 @@
                             });
                         }, 3000); 
                     }
-
                 }, { deep: true });
 
                 const compressAndSaveImage = (event, targetSettingKey) => {
@@ -763,11 +867,7 @@
                 const safeDailyStock = (id) => {
                     const ds = dailyStock.value[id];
                     if (!ds) return { open: 0, in: 0, sold: 0 };
-                    return {
-                        open: Number(ds.open) || 0,
-                        in: Number(ds.in) || 0,
-                        sold: Number(ds.sold) || 0
-                    };
+                    return { open: Number(ds.open) || 0, in: Number(ds.in) || 0, sold: Number(ds.sold) || 0 };
                 };
 
                 const reversedTransactions = computed(() => {
@@ -801,34 +901,17 @@
                         const rec = selectedPastRecord.value;
                         const safeSales = rec.salesByMethod || {};
                         return {
-                            date: rec.date || '-', 
-                            venue: rec.venue || '-', 
-                            startTime: rec.startTime || '', 
-                            endTime: rec.endTime || '',
-                            totalSales: Number(rec.totalSales) || 0, 
-                            salesCount: Number(rec.salesCount) || 0,
-                            salesByMethod: {
-                                'Cash': Number(safeSales['Cash']) || 0,
-                                'Sarawak Pay': Number(safeSales['Sarawak Pay']) || 0,
-                                'QR': Number(safeSales['QR']) || 0
-                            },
+                            date: rec.date || '-', venue: rec.venue || '-', startTime: rec.startTime || '', endTime: rec.endTime || '',
+                            totalSales: Number(rec.totalSales) || 0, salesCount: Number(rec.salesCount) || 0,
+                            salesByMethod: { 'Cash': Number(safeSales['Cash']) || 0, 'Sarawak Pay': Number(safeSales['Sarawak Pay']) || 0, 'QR': Number(safeSales['QR']) || 0 },
                             stockMovement: Array.isArray(rec.stockMovement) ? rec.stockMovement : [],
                             transactionsList: Array.isArray(rec.transactionsList) ? rec.transactionsList : []
                         };
                     }
-                    
                     return {
-                        date: settings.value.date || '-', 
-                        venue: settings.value.venue || '-', 
-                        startTime: settings.value.startTime || '-', 
-                        endTime: null,
-                        totalSales: totalSales.value || 0, 
-                        salesCount: Array.isArray(transactions.value) ? transactions.value.length : 0,
-                        salesByMethod: { 
-                            'Cash': salesByMethod('Cash') || 0, 
-                            'Sarawak Pay': salesByMethod('Sarawak Pay') || 0, 
-                            'QR': salesByMethod('QR') || 0 
-                        },
+                        date: settings.value.date || '-', venue: settings.value.venue || '-', startTime: settings.value.startTime || '-', endTime: null,
+                        totalSales: totalSales.value || 0, salesCount: Array.isArray(transactions.value) ? transactions.value.length : 0,
+                        salesByMethod: { 'Cash': salesByMethod('Cash') || 0, 'Sarawak Pay': salesByMethod('Sarawak Pay') || 0, 'QR': salesByMethod('QR') || 0 },
                         stockMovement: items.value.map(item => {
                             const ds = safeDailyStock(item.id);
                             return { name: item.name || 'Unknown', open: ds.open, in: ds.in, sold: ds.sold, close: Number(item.stock) || 0, var: calculateVar(item) };
@@ -880,11 +963,8 @@
                 const addCategory = () => {
                     const name = prompt("Enter new category name:");
                     if(name && name.trim() !== "") {
-                        if(!customCategories.value.includes(name.trim())) {
-                            customCategories.value.push(name.trim());
-                        } else {
-                            alert("Category already exists!");
-                        }
+                        if(!customCategories.value.includes(name.trim())) { customCategories.value.push(name.trim()); } 
+                        else { alert("Category already exists!"); }
                     }
                 };
 
@@ -892,16 +972,9 @@
                     const oldName = customCategories.value[index];
                     const newName = prompt(`Enter new name for "${oldName}":`, oldName);
                     if (newName && newName.trim() !== "" && newName !== oldName) {
-                        if(customCategories.value.includes(newName.trim())) {
-                            alert("Category name already exists!");
-                            return;
-                        }
+                        if(customCategories.value.includes(newName.trim())) { alert("Category name already exists!"); return; }
                         customCategories.value[index] = newName.trim();
-                        items.value.forEach(item => {
-                            if (item.category === oldName) {
-                                item.category = newName.trim();
-                            }
-                        });
+                        items.value.forEach(item => { if (item.category === oldName) { item.category = newName.trim(); } });
                         if (activeCategory.value === oldName) activeCategory.value = newName.trim();
                     }
                 };
@@ -910,11 +983,7 @@
                     const catName = customCategories.value[index];
                     if(confirm(`Delete category "${catName}"? Items inside will become 'Uncategorized'.`)) {
                         customCategories.value.splice(index, 1);
-                        items.value.forEach(item => {
-                            if (item.category === catName) {
-                                item.category = 'Uncategorized';
-                            }
-                        });
+                        items.value.forEach(item => { if (item.category === catName) { item.category = 'Uncategorized'; } });
                         if (activeCategory.value === catName) activeCategory.value = 'All';
                     }
                 };
@@ -923,9 +992,8 @@
 
                 const saveItem = () => {
                     if(!form.name) return alert("Item name is required!");
-                    if (editingItem.value) {
-                        Object.assign(editingItem.value, form);
-                    } else {
+                    if (editingItem.value) { Object.assign(editingItem.value, form); } 
+                    else {
                         const newId = Date.now();
                         items.value.push({ ...form, id: newId });
                         if(sessionStarted.value) { dailyStock.value[newId] = { open: form.stock, in: 0, sold: 0 }; }
@@ -944,10 +1012,7 @@
                     }
                 };
 
-                const resetForm = () => { 
-                    form.name = ''; form.price = 0; form.category = customCategories.value.length > 0 ? customCategories.value[0] : 'Uncategorized'; 
-                    form.barcode = ''; form.stock = 10; form.icon = '📦'; editingItem.value = null; 
-                };
+                const resetForm = () => { form.name = ''; form.price = 0; form.category = customCategories.value.length > 0 ? customCategories.value[0] : 'Uncategorized'; form.barcode = ''; form.stock = 10; form.icon = '📦'; editingItem.value = null; };
 
                 const applyStock = () => {
                     let hasUpdates = false;
@@ -959,13 +1024,8 @@
                             hasUpdates = true;
                         }
                     });
-                    if (hasUpdates) {
-                        alert("Stock updated successfully!");
-                        incomingStock.value = {}; 
-                        currentTab.value = 'items'; 
-                    } else {
-                        alert("No stock quantities added.");
-                    }
+                    if (hasUpdates) { alert("Stock updated successfully!"); incomingStock.value = {}; currentTab.value = 'items'; } 
+                    else { alert("No stock quantities added."); }
                 };
 
                 const filteredItems = computed(() => {
@@ -990,23 +1050,33 @@
                 const cartCount = computed(() => (cart.value || []).reduce((sum, item) => sum + (Number(item.qty) || 0), 0));
                 const cartTotal = computed(() => (cart.value || []).reduce((sum, item) => sum + ((Number(item.price) || 0) * (Number(item.qty) || 0)), 0));
 
+                // AUTOCOUNT: Kalkulator Baki (Change)
+                const changeAmount = computed(() => {
+                    const tendered = Number(amountTendered.value) || 0;
+                    return tendered - cartTotal.value;
+                });
+
                 const selectPaymentMethod = (method) => {
+                    activeQrType.value = method;
+                    showPayment.value = false;
+                    
                     if (method === 'Cash') {
-                        finalizePayment('Cash');
+                        amountTendered.value = cartTotal.value.toString(); // Default letak harga tepat
+                        showCashCalculator.value = true;
                     } else {
-                        activeQrType.value = method;
                         activeQrImage.value = method === 'Sarawak Pay' ? settings.value.qrSarawakPay : settings.value.qrOther;
-                        showPayment.value = false;
                         showQrScannerModal.value = true;
                     }
                 };
 
-                const cancelQrPayment = () => {
-                    showQrScannerModal.value = false;
-                    showPayment.value = true;
-                };
+                const cancelQrPayment = () => { showQrScannerModal.value = false; showPayment.value = true; };
 
+                // AUTOCOUNT: Selesaikan Pembayaran dan Jana Nombor Resit
                 const finalizePayment = (method) => {
+                    const tendered = method === 'Cash' ? (Number(amountTendered.value) || 0) : cartTotal.value;
+                    const change = method === 'Cash' ? changeAmount.value : 0;
+
+                    // Tolak stok dari database
                     cart.value.forEach(cartItem => {
                         const dbItem = items.value.find(i => i.id === cartItem.id);
                         if (dbItem) {
@@ -1014,12 +1084,40 @@
                             if(dailyStock.value[dbItem.id]) { dailyStock.value[dbItem.id].sold += cartItem.qty; } 
                         }
                     });
-                    transactions.value.push({ time: new Date().toISOString(), method: method, total: cartTotal.value, items: [...cart.value] });
+
+                    // Jana Nombor Invois/Resit AutoCount style (Cth: INV-20260619-001)
+                    const dateStr = new Date().toISOString().split('T')[0].replace(/-/g, '');
+                    const runningNo = (transactions.value.length + 1).toString().padStart(3, '0');
+                    const receiptNo = `INV-${dateStr}-${runningNo}`;
+
+                    const newTx = { 
+                        receiptNo: receiptNo,
+                        time: new Date().toISOString(), 
+                        method: method, 
+                        total: cartTotal.value, 
+                        tendered: tendered,
+                        change: change,
+                        items: [...cart.value] 
+                    };
+
+                    transactions.value.push(newTx);
+                    currentReceipt.value = newTx;
+                    
                     cart.value = []; 
-                    showPayment.value = false; 
                     showQrScannerModal.value = false;
+                    showCashCalculator.value = false;
                     showCart.value = false;
+                    
+                    // Terus tunjuk resit Thermal Printer selepas bayar
+                    showReceiptModal.value = true;
                 };
+
+                const reprintReceipt = (tx) => {
+                    currentReceipt.value = tx;
+                    showReceiptModal.value = true;
+                };
+
+                const printReceipt = () => { window.print(); };
 
                 const undoLastSale = () => {
                     if (!Array.isArray(transactions.value) || transactions.value.length === 0) return;
@@ -1030,9 +1128,7 @@
                                 const dbItem = items.value.find(i => i.id === cartItem.id);
                                 if (dbItem) {
                                     dbItem.stock += (Number(cartItem.qty) || 0);
-                                    if(dailyStock.value[dbItem.id]) { 
-                                        dailyStock.value[dbItem.id].sold -= (Number(cartItem.qty) || 0); 
-                                    } 
+                                    if(dailyStock.value[dbItem.id]) { dailyStock.value[dbItem.id].sold -= (Number(cartItem.qty) || 0); } 
                                 }
                             });
                         }
@@ -1049,7 +1145,9 @@
                     addToCart, updateQty, undoLastSale, formatTime, formatMoney, safeDailyStock,
                     reversedTransactions, reversedPastTransactions, totalSales, salesByMethod,
                     customCategories, addCategory, editCategory, deleteCategory,
-                    isLoadingCloudData, isSyncing, lastSyncTime
+                    isLoadingCloudData, isSyncing, lastSyncTime,
+                    // AUTOCOUNT NEW EXPORTS
+                    showCashCalculator, amountTendered, changeAmount, showReceiptModal, currentReceipt, reprintReceipt, printReceipt
                 };
             }
         }).mount('#app');
